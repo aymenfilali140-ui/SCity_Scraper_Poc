@@ -1,6 +1,6 @@
 # Qatar Events Aggregator 🎭
 
-A modern web application that aggregates events from top Qatar websites including **ILoveQatar**, **Platinumlist**, and **Visit Qatar**. Discover the best events happening in Qatar with a beautiful, user-friendly interface.
+A modern web application that aggregates events from top Qatar websites including **ILoveQatar**, **QatarMuseums**, and **Visit Qatar**. Discover the best events happening in Qatar with a beautiful, user-friendly interface.
 
 ![Qatar Events Aggregator](https://images.unsplash.com/photo-1492684223066-81342ee5ff30?w=1200)
 
