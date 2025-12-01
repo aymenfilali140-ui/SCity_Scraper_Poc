@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Qatar Events - Powered by Snoonu</title>
+    <link rel="stylesheet" href="styles.css">
+    <!-- Inter Font (Snoonu B2B Brand Typography) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+</head>
+
+<body>
+    <!-- Header -->
+    <header class="header">
+        <div class="container">
+            <div class="header-content container">
+                <div class="logo-section">
+                    <h1 class="logo">Qatar Events</h1>
+                    <p class="tagline">Discover amazing events across Qatar</p>
+                </div>
+                <div class="header-actions">
+                    <button class="theme-toggle" id="themeToggle" aria-label="Toggle theme">
+                        <span class="theme-icon light-icon">☀️</span>
+                        <span class="theme-icon dark-icon">🌙</span>
+                    </button>
+                    <button class="refresh-btn" id="refreshBtn">
+                        <span class="refresh-icon">↻</span>
+                        <span>Refresh Events</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Filters -->
+    <section class="filters-section">
+        <div class="container">
+            <!-- Quick Date Actions -->
+            <div class="quick-actions">
+                <button class="quick-action-btn" data-range="today" id="todayBtn">
+                    <span class="action-icon">📅</span>
+                    <span>Today</span>
+                </button>
+                <button class="quick-action-btn active" data-range="week" id="weekBtn">
+                    <span class="action-icon">📆</span>
+                    <span>This Week</span>
+                </button>
+                <button class="quick-action-btn" data-range="month" id="monthBtn">
+                    <span class="action-icon">🗓️</span>
+                    <span>This Month</span>
+                </button>
+                <button class="quick-action-btn" data-range="all" id="allBtn">
+                    <span class="action-icon">∞</span>
+                    <span>All Events</span>
+                </button>
+            </div>
+        </div>
+    </section>
+
+    <!-- Category Sidebar -->
+    <aside class="category-sidebar" id="categorySidebar">
+        <div class="sidebar-header">
+            <h3>Categories</h3>
+            <button class="sidebar-close" id="sidebarClose" aria-label="Close sidebar">×</button>
+        </div>
+        <div class="sidebar-content">
+            <div class="category-list" id="categoryList">
+                <button class="category-item active" data-category="all">
+                    <span class="category-icon">🎭</span>
+                    <span>All Categories</span>
+                </button>
+                <!-- Dynamic categories will be inserted here -->
+            </div>
+        </div>
+    </aside>
+
+    <!-- Sidebar Toggle Button -->
+    <button class="sidebar-toggle" id="sidebarToggle" aria-label="Toggle categories">
+        <span class="toggle-icon">☰</span>
+        <span class="toggle-text">Categories</span>
+    </button>
+
+    <!-- Sidebar Overlay -->
+    <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+    <!-- Main Content -->
+    <main class="main-content">
+        <div class="container">
+            <!-- Loading State -->
+            <div class="loading" id="loading">
+                <div class="loading-spinner"></div>
+                <p>Loading amazing events...</p>
+            </div>
+
+            <!-- Error State -->
+            <div class="error" id="error" style="display: none;">
+                <div class="error-icon">⚠️</div>
+                <h2>Oops! Something went wrong</h2>
+                <p id="errorMessage"></p>
+                <button class="retry-btn" onclick="location.reload()">Try Again</button>
+            </div>
+
+            <!-- Empty State -->
+            <div class="empty-state" id="emptyState" style="display: none;">
+                <div class="empty-icon">📅</div>
+                <h2>No Events Found</h2>
+                <p>Try adjusting your filters or check back later for new events.</p>
+            </div>
+
+            <!-- Events Grid -->
+            <div class="events-grid" id="eventsGrid"></div>
+        </div>
+    </main>
+
+    <!-- Event Detail Modal -->
+    <div class="modal" id="eventModal">
+        <div class="modal-overlay" id="modalOverlay"></div>
+        <div class="modal-content">
+            <button class="modal-close" id="modalClose" aria-label="Close modal">×</button>
+            <div class="modal-body" id="modalBody">
+                <!-- Event details will be inserted here -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container">
+            <!-- Stats moved here -->
+            <div class="footer-stats" id="stats">
+                <span class="stat-item">
+                    <span class="stat-label">Total Events:</span>
+                    <span class="stat-value" id="totalEvents">0</span>
+                </span>
+                <span class="stat-divider">•</span>
+                <span class="stat-item">
+                    <span class="stat-label">Last Updated:</span>
+                    <span class="stat-value" id="lastUpdate">Never</span>
+                </span>
+            </div>
+            <p>&copy; 2024 <strong>Qatar Events</strong> • Powered by Snoonu B2B</p>
+            <p class="footer-note">Aggregating events from ILoveQatar, Qatar Museums, and Visit Qatar</p>
+        </div>
+    </footer>
+
+    <script src="app.js"></script>
+</body>
+
+</html>
