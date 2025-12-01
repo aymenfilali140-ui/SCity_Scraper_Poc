@@ -214,7 +214,21 @@ cron.schedule('0 */6 * * *', () => {
 scrapeAllSources();
 
 // Start server
-app.listen(PORT, () => {
-    console.log(`Qatar Events Aggregator running on http://localhost:${PORT}`);
+// Start server
+app.listen(PORT, '0.0.0.0', () => {
+    console.log(`Qatar Events Aggregator running on:`);
+    console.log(`- Local:   http://localhost:${PORT}`);
+
+    // Log network IP
+    const { networkInterfaces } = require('os');
+    const nets = networkInterfaces();
+    for (const name of Object.keys(nets)) {
+        for (const net of nets[name]) {
+            if (net.family === 'IPv4' && !net.internal) {
+                console.log(`- Network: http://${net.address}:${PORT}`);
+            }
+        }
+    }
+
     console.log('Scraping events from ILoveQatar, Qatar Museums, and Visit Qatar...');
 });
