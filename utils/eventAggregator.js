@@ -51,13 +51,37 @@ class EventAggregator {
     parseDate(dateString) {
         if (!dateString) return new Date();
 
-        // Try to parse various date formats
-        const date = new Date(dateString);
+        let date = new Date(dateString);
+        const currentYear = new Date().getFullYear();
+
+        // If parsing fails or returns an old default year (like 2001), try to fix it
+        if (isNaN(date.getTime()) || date.getFullYear() < currentYear - 1) {
+            // Try appending current year
+            if (typeof dateString === 'string') {
+                // Clean the string first
+                const cleanDate = dateString.replace(/,?\s*\d{4}.*$/, '');
+                date = new Date(`${cleanDate}, ${currentYear}`);
+            }
+        }
+
         if (!isNaN(date.getTime())) {
+            // If the date is still way in the past (e.g. 2001), force it to current year
+            if (date.getFullYear() < currentYear - 1) {
+                date.setFullYear(currentYear);
+            }
+
+            // Handle year transition (e.g. scraping "January 1" in December)
+            const now = new Date();
+            const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+            // If date is more than 30 days in the past, assume it's for next year
+            if (date < thirtyDaysAgo) {
+                date.setFullYear(date.getFullYear() + 1);
+            }
+
             return date;
         }
 
-        // If parsing fails, return current date
         return new Date();
     }
 
@@ -65,7 +89,9 @@ class EventAggregator {
      * Get all events
      */
     getAllEvents() {
-        return this.removeDuplicates(this.events);
+        return this.removeDuplicates(this.events).sort((a, b) =>
+            new Date(a.date) - new Date(b.date)
+        );
     }
 
     /**

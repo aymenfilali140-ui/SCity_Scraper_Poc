@@ -44,6 +44,10 @@ class EventsApp {
         this.modalClose = document.getElementById('modalClose');
         this.modalOverlay = document.getElementById('modalOverlay');
 
+        // Search and Top Stats
+        this.searchInput = document.getElementById('searchInput');
+        this.topTotalEventsEl = document.getElementById('topTotalEvents');
+
         // Theme toggle
         this.themeToggle = document.getElementById('themeToggle');
         this.initializeTheme();
@@ -73,6 +77,12 @@ class EventsApp {
     attachEventListeners() {
         // Theme toggle
         this.themeToggle.addEventListener('click', () => this.toggleTheme());
+
+        // Search input
+        this.searchInput.addEventListener('input', (e) => {
+            this.searchQuery = e.target.value.toLowerCase();
+            this.filterAndRenderEvents();
+        });
 
         // Quick action buttons for date range
         this.todayBtn.addEventListener('click', () => this.setDateRange('today'));
@@ -223,14 +233,24 @@ class EventsApp {
 
     filterAndRenderEvents() {
         // Filter by category
-        if (this.currentCategory === 'all') {
-            this.filteredEvents = [...this.events];
-        } else {
-            this.filteredEvents = this.events.filter(event =>
+        let filtered = [...this.events];
+
+        if (this.currentCategory !== 'all') {
+            filtered = filtered.filter(event =>
                 event.category.toLowerCase() === this.currentCategory.toLowerCase()
             );
         }
 
+        // Filter by search query
+        if (this.searchQuery) {
+            filtered = filtered.filter(event =>
+                event.title.toLowerCase().includes(this.searchQuery) ||
+                event.description.toLowerCase().includes(this.searchQuery) ||
+                event.venue.toLowerCase().includes(this.searchQuery)
+            );
+        }
+
+        this.filteredEvents = filtered;
         this.renderEvents();
     }
 
@@ -239,11 +259,15 @@ class EventsApp {
 
         if (this.filteredEvents.length === 0) {
             this.showEmptyState();
+            // Update stats even if empty
+            this.totalEventsEl.textContent = '0';
+            this.topTotalEventsEl.textContent = '0';
             return;
         }
 
         this.eventsGrid.innerHTML = '';
         this.totalEventsEl.textContent = this.filteredEvents.length;
+        this.topTotalEventsEl.textContent = this.filteredEvents.length;
 
         this.filteredEvents.forEach((event, index) => {
             const card = this.createEventCard(event, index);
@@ -257,40 +281,38 @@ class EventsApp {
         card.style.animationDelay = `${index * 0.05}s`;
 
         const eventDate = new Date(event.date);
-        const formattedDate = this.formatDate(eventDate);
+        // Use dateDisplay if available (for ranges), otherwise format the date
+        const formattedDate = event.dateDisplay || this.formatDate(eventDate);
+
+        const isInstagram = event.link && event.link.includes('instagram.com');
+        const linkText = isInstagram ? 'Instagram' : event.source;
+        const linkClass = isInstagram ? 'btn-instagram' : 'btn-primary';
 
         card.innerHTML = `
-            <img src="${event.image || 'https://images.unsplash.com/photo-1492684223066-81342ee5ff30?w=800'}" 
-                 alt="${event.title}" 
-                 class="event-image"
-                 onerror="this.src='https://images.unsplash.com/photo-1492684223066-81342ee5ff30?w=800'">
+            <div class="event-image-container">
+                <img src="${event.image || 'https://images.unsplash.com/photo-1492684223066-81342ee5ff30?w=800'}" 
+                     alt="${event.title}" 
+                     class="event-image"
+                     onerror="this.src='https://images.unsplash.com/photo-1492684223066-81342ee5ff30?w=800'">
+                <span class="category-badge">${event.category}</span>
+            </div>
             <div class="event-content">
-                <div class="event-header">
-                    <span class="event-category">${event.category}</span>
-                    <h3 class="event-title">${event.title}</h3>
-                </div>
-                <p class="event-description">${event.description || 'Click to view more details about this event.'}</p>
+                <h3 class="event-title">${event.title}</h3>
                 <div class="event-meta">
                     <div class="event-meta-item">
-                        <span class="event-meta-icon">📅</span>
                         <span>${formattedDate}</span>
                     </div>
-                    ${event.time ? `
-                        <div class="event-meta-item">
-                            <span class="event-meta-icon">🕐</span>
-                            <span>${event.time}</span>
-                        </div>
-                    ` : ''}
                     ${event.venue ? `
                         <div class="event-meta-item">
-                            <span class="event-meta-icon">📍</span>
                             <span>${event.venue}</span>
                         </div>
                     ` : ''}
                 </div>
                 <div class="event-footer">
-                    <span class="event-price">${event.price || 'Check website'}</span>
-                    <span class="event-organizer">${event.organizer}</span>
+                    <span class="event-price">${event.price || 'Free'}</span>
+                    <a href="${event.link}" target="_blank" class="event-link-btn ${linkClass}" onclick="event.stopPropagation()">
+                        ${linkText} →
+                    </a>
                 </div>
             </div>
         `;
@@ -304,7 +326,12 @@ class EventsApp {
 
     showEventDetails(event) {
         const eventDate = new Date(event.date);
-        const formattedDate = this.formatDate(eventDate);
+        // Use dateDisplay if available (for ranges), otherwise format the date
+        const formattedDate = event.dateDisplay || this.formatDate(eventDate);
+
+        const isInstagram = event.link && event.link.includes('instagram.com');
+        const linkText = isInstagram ? 'Open on Instagram' : `Open on ${event.source}`;
+        const linkClass = isInstagram ? 'btn-instagram' : 'btn-primary';
 
         this.modalBody.innerHTML = `
             <img src="${event.image || 'https://images.unsplash.com/photo-1492684223066-81342ee5ff30?w=800'}" 
@@ -317,39 +344,31 @@ class EventsApp {
             </div>
             <div class="modal-meta">
                 <div class="modal-meta-item">
-                    <span class="modal-meta-icon">📅</span>
-                    <span>${formattedDate}</span>
+                    <strong>Date:</strong> ${formattedDate}
                 </div>
                 ${event.time ? `
                     <div class="modal-meta-item">
-                        <span class="modal-meta-icon">🕐</span>
-                        <span>${event.time}</span>
+                        <strong>Time:</strong> ${event.time}
                     </div>
                 ` : ''}
                 ${event.venue ? `
                     <div class="modal-meta-item">
-                        <span class="modal-meta-icon">📍</span>
-                        <span>${event.venue}</span>
+                        <strong>Venue:</strong> ${event.venue}
                     </div>
                 ` : ''}
                 <div class="modal-meta-item">
-                    <span class="modal-meta-icon">💰</span>
-                    <span>${event.price || 'Check website'}</span>
-                </div>
-                <div class="modal-meta-item">
-                    <span class="modal-meta-icon">🏢</span>
-                    <span>${event.organizer}</span>
+                    <strong>Price:</strong> ${event.price || 'Free'}
                 </div>
             </div>
-            <div class="modal-description">
-                ${event.description || 'No description available for this event.'}
-            </div>
+            ${event.description ? `
+                <div class="modal-description">
+                    ${event.description}
+                </div>
+            ` : ''}
             <div class="modal-actions">
-                ${event.link ? `
-                    <a href="${event.link}" target="_blank" rel="noopener noreferrer" class="modal-btn modal-btn-primary">
-                        View Event Details →
-                    </a>
-                ` : ''}
+                <a href="${event.link}" target="_blank" class="btn ${linkClass}">
+                    ${linkText} →
+                </a>
             </div>
         `;
 

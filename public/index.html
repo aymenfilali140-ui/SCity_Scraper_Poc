@@ -38,22 +38,37 @@
     <!-- Filters -->
     <section class="filters-section">
         <div class="container">
+            <!-- Search and Stats Row -->
+            <div class="filters-header">
+                <!-- Category Toggle moved here -->
+                <button class="category-toggle-btn" id="sidebarToggle" aria-label="Toggle categories">
+                    <span class="action-icon">☰</span>
+                    <span>Categories</span>
+                </button>
+
+                <div class="search-container">
+                    <span class="search-icon">🔍</span>
+                    <input type="text" id="searchInput" class="search-input" placeholder="Search events...">
+                </div>
+                <div class="top-stats">
+                    <span class="stats-count" id="topTotalEvents">0</span>
+                    <span class="stats-label">Events Found</span>
+                </div>
+            </div>
+
             <!-- Quick Date Actions -->
             <div class="quick-actions">
                 <button class="quick-action-btn" data-range="today" id="todayBtn">
-                    <span class="action-icon">📅</span>
                     <span>Today</span>
                 </button>
                 <button class="quick-action-btn active" data-range="week" id="weekBtn">
-                    <span class="action-icon">📆</span>
                     <span>This Week</span>
                 </button>
                 <button class="quick-action-btn" data-range="month" id="monthBtn">
-                    <span class="action-icon">🗓️</span>
                     <span>This Month</span>
                 </button>
                 <button class="quick-action-btn" data-range="all" id="allBtn">
-                    <span class="action-icon">∞</span>
+                    <span class="action-icon">🗓️</span>
                     <span>All Events</span>
                 </button>
             </div>
@@ -77,12 +92,6 @@
         </div>
     </aside>
 
-    <!-- Sidebar Toggle Button -->
-    <button class="sidebar-toggle" id="sidebarToggle" aria-label="Toggle categories">
-        <span class="toggle-icon">☰</span>
-        <span class="toggle-text">Categories</span>
-    </button>
-
     <!-- Sidebar Overlay -->
     <div class="sidebar-overlay" id="sidebarOverlay"></div>
 
@@ -105,7 +114,7 @@
 
             <!-- Empty State -->
             <div class="empty-state" id="emptyState" style="display: none;">
-                <div class="empty-icon">📅</div>
+                <div class="empty-icon"></div>
                 <h2>No Events Found</h2>
                 <p>Try adjusting your filters or check back later for new events.</p>
             </div>
@@ -147,6 +156,7 @@
     </footer>
 
     <script src="app.js"></script>
+    <script src="chatbot.js"></script>
 </body>
 
 </html>

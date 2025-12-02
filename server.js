@@ -16,6 +16,7 @@ const visitQatarScraper = require('./scrapers/visitQatar');
 // Import event aggregator and AI classifier
 const eventAggregator = require('./utils/eventAggregator');
 const categoryClassifier = require('./utils/categoryClassifier');
+const Chatbot = require('./utils/chatbot');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -28,6 +29,9 @@ app.use(express.static('public'));
 // Track scraping status
 let isScrapingInProgress = false;
 let lastScrapingTime = null;
+
+// Initialize chatbot
+const chatbot = new Chatbot(process.env.GEMINI_API_KEY);
 let scrapingError = null;
 
 /**
@@ -71,6 +75,10 @@ async function scrapeAllSources() {
         lastScrapingTime = new Date();
         console.log('Scraping completed successfully');
         console.log('Stats:', eventAggregator.getStats());
+
+        // Index events for chatbot
+        const allEvents = eventAggregator.getAllEvents();
+        await chatbot.indexEvents(allEvents);
     } catch (error) {
         console.error('Error during scraping:', error);
         scrapingError = error.message;

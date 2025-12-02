@@ -122,11 +122,31 @@ class VisitQatarScraper {
             const startDate = rawEvent.startDate || {};
             const endDate = rawEvent.endDate || {};
 
-            const startDateStr = `${startDate.day || '?'} ${startDate.monthAndYear || '?'}`;
-            const endDateStr = `${endDate.day || '?'} ${endDate.monthAndYear || '?'}`;
+            // Build date string - handle ranges
+            let dateDisplay = '';
+            let isoDate = new Date().toISOString();
 
-            // Parse to ISO date
-            const isoDate = this.parseDate(startDateStr);
+            if (startDate.day && startDate.monthAndYear) {
+                const startDateStr = `${startDate.day} ${startDate.monthAndYear}`;
+                dateDisplay = startDateStr;
+
+                // Try to parse the start date properly
+                isoDate = this.parseDate(startDateStr);
+
+                // Check if there's an end date and it's different
+                if (endDate.day && endDate.monthAndYear) {
+                    const endDateStr = `${endDate.day} ${endDate.monthAndYear}`;
+                    // Only show range if dates are different
+                    if (startDateStr !== endDateStr) {
+                        // If same month, just show day range
+                        if (startDate.monthAndYear === endDate.monthAndYear) {
+                            dateDisplay = `${startDate.day} - ${endDate.day} ${startDate.monthAndYear}`;
+                        } else {
+                            dateDisplay = `${startDateStr} - ${endDateStr}`;
+                        }
+                    }
+                }
+            }
 
             // Extract time
             const timeInfo = rawEvent.time || {};
@@ -171,31 +191,75 @@ class VisitQatarScraper {
                 }
             }
 
-            // Extract image
+            // Extract image - try multiple fields and log for debugging
             let image = '';
-            if (rawEvent.image) {
-                image = typeof rawEvent.image === 'string' ? rawEvent.image : '';
-                if (image && !image.startsWith('http')) {
-                    image = `${this.baseUrl}${image}`;
+
+            // Try various possible image fields
+            const imageFields = ['imageUrl', 'image', 'thumbnail', 'thumbnailUrl', 'coverImage', 'featuredImage'];
+
+            for (const field of imageFields) {
+                if (rawEvent[field]) {
+                    if (typeof rawEvent[field] === 'string') {
+                        image = rawEvent[field];
+                        break;
+                    } else if (typeof rawEvent[field] === 'object' && rawEvent[field].url) {
+                        image = rawEvent[field].url;
+                        break;
+                    }
                 }
+            }
+
+            // If still no image, check if there's a media array
+            if (!image && rawEvent.media && Array.isArray(rawEvent.media) && rawEvent.media.length > 0) {
+                const firstMedia = rawEvent.media[0];
+                if (typeof firstMedia === 'string') {
+                    image = firstMedia;
+                } else if (firstMedia.url) {
+                    image = firstMedia.url;
+                }
+            }
+
+            // Ensure full URL
+            if (image && !image.startsWith('http')) {
+                image = `${this.baseUrl}${image}`;
+            }
+
+            // Log for debugging
+            if (!image) {
+                console.log(`Visit Qatar: No image found for event "${rawEvent.title}". Available fields:`, Object.keys(rawEvent));
             }
 
             // Determine price
             const price = rawEvent.free === true ? 'Free' : 'Check website';
 
-            return {
+            const event = {
                 id: rawEvent.id || link,
                 title: rawEvent.title || 'No Title',
                 description: description || 'Click to view more details about this event.',
                 date: isoDate,
+                endDate: endDate.day && endDate.monthAndYear ? this.parseDate(`${endDate.day} ${endDate.monthAndYear}`) : null,
                 time: timeStr,
                 price: price,
                 category: categoryStr || 'Events',
                 image: image || 'https://images.unsplash.com/photo-1582555172866-f73bb12a2ab3?w=800',
                 link: link,
                 venue: location,
-                organizer: 'Visit Qatar'
+                organizer: 'Visit Qatar',
+                dateDisplay: dateDisplay // Store the formatted date range for display
             };
+
+            // If link is Instagram and no image, try to fetch profile picture
+            if (!image && link.includes('instagram.com')) {
+                this.fetchInstagramProfilePicture(link).then(profilePic => {
+                    if (profilePic) {
+                        event.image = profilePic;
+                    }
+                }).catch(err => {
+                    console.error('Error fetching Instagram profile picture:', err.message);
+                });
+            }
+
+            return event;
         } catch (error) {
             console.error('Error transforming event:', error.message);
             return null;
@@ -204,6 +268,7 @@ class VisitQatarScraper {
 
     /**
      * Parse date string to ISO format
+     * Handles formats like "6 December 2025" or "6th December"
      */
     parseDate(dateStr) {
         if (!dateStr || dateStr.includes('?')) {
@@ -211,15 +276,76 @@ class VisitQatarScraper {
         }
 
         try {
-            const date = new Date(dateStr);
+            // Clean the date string - remove ordinal suffixes (st, nd, rd, th)
+            const cleanedDate = dateStr.replace(/(\d+)(st|nd|rd|th)/g, '$1');
+
+            // Try to parse directly
+            let date = new Date(cleanedDate);
+
+            // If no year is specified, Date() might default to 2001
+            // Check if the year is way in the past and add current/next year
             if (!isNaN(date.getTime())) {
+                const currentYear = new Date().getFullYear();
+                if (date.getFullYear() < currentYear - 1) {
+                    // Extract day and month, add current year
+                    const parts = cleanedDate.split(' ');
+                    if (parts.length >= 2) {
+                        date = new Date(`${parts[0]} ${parts[1]} ${currentYear}`);
+
+                        // If the date is in the past, try next year
+                        if (date < new Date()) {
+                            date = new Date(`${parts[0]} ${parts[1]} ${currentYear + 1}`);
+                        }
+                    }
+                }
                 return date.toISOString();
             }
         } catch (err) {
-            // If parsing fails, return current date
+            console.error('Date parsing error:', err.message);
         }
 
         return new Date().toISOString();
+    }
+
+    /**
+     * Fetch Instagram profile picture from Instagram URL
+     * Attempts to scrape the profile picture from the Instagram page
+     */
+    async fetchInstagramProfilePicture(instagramUrl) {
+        try {
+            // Extract username from Instagram URL
+            const match = instagramUrl.match(/instagram\.com\/([^\/\?]+)/);
+            if (!match || !match[1] || ['p', 'reel', 'tv', 'stories'].includes(match[1])) {
+                return '';
+            }
+
+            const username = match[1];
+            const profileUrl = `https://www.instagram.com/${username}/`;
+
+            // Try to fetch the profile page and extract profile picture
+            const response = await axios.get(profileUrl, {
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                },
+                timeout: 5000
+            });
+
+            // Look for profile picture URL in the page
+            const profilePicMatch = response.data.match(/"profile_pic_url":"([^"]+)"/);
+            if (profilePicMatch && profilePicMatch[1]) {
+                return profilePicMatch[1].replace(/\\u0026/g, '&');
+            }
+
+            // Alternative: look for og:image meta tag
+            const ogImageMatch = response.data.match(/<meta property="og:image" content="([^"]+)"/);
+            if (ogImageMatch && ogImageMatch[1]) {
+                return ogImageMatch[1];
+            }
+
+        } catch (err) {
+            console.error(`Error fetching Instagram profile picture for ${instagramUrl}:`, err.message);
+        }
+        return '';
     }
 
     /**
