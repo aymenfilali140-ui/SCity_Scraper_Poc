@@ -3,6 +3,9 @@
  * Aggregates events from multiple Qatar websites
  */
 
+// Load environment variables
+require('dotenv').config();
+
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
@@ -197,6 +200,38 @@ app.post('/api/refresh', async (req, res) => {
             message: 'Scraping started'
         });
     } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+/**
+ * POST /api/chat
+ * Handle chatbot queries
+ */
+app.post('/api/chat', async (req, res) => {
+    try {
+        const { query } = req.body;
+
+        if (!query) {
+            return res.status(400).json({
+                success: false,
+                error: 'Query is required'
+            });
+        }
+
+        // Get response from chatbot
+        const result = await chatbot.chat(query);
+
+        res.json({
+            success: true,
+            response: result.response,
+            events: result.events
+        });
+    } catch (error) {
+        console.error('Chat API error:', error);
         res.status(500).json({
             success: false,
             error: error.message
