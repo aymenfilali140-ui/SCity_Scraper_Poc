@@ -31,7 +31,7 @@ class CategoryClassifier {
         if (process.env.GEMINI_API_KEY) {
             try {
                 this.genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-                this.model = this.genAI.getGenerativeModel({ model: 'gemini-pro' });
+                this.model = this.genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
                 console.log('AI Category Classifier: Gemini AI initialized');
             } catch (error) {
                 console.log('AI Category Classifier: Failed to initialize Gemini AI:', error.message);

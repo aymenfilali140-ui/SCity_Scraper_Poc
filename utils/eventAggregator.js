@@ -1,19 +1,78 @@
 /**
  * Event Aggregator - Combines and normalizes events from multiple sources
+ * Now with MongoDB persistence
  */
+
+const Event = require('../models/Event');
 
 class EventAggregator {
     constructor() {
-        this.events = [];
+        this.inMemoryEvents = []; // Fallback for when DB is unavailable
         this.lastUpdate = null;
+        this.useDatabase = false;
+    }
+
+    /**
+     * Initialize with database support
+     */
+    async initialize(database) {
+        this.database = database;
+        this.useDatabase = database && database.isConnected;
+        
+        if (this.useDatabase) {
+            console.log('EventAggregator: Using MongoDB for persistence');
+        } else {
+            console.log('EventAggregator: Using in-memory storage (no persistence)');
+        }
     }
 
     /**
      * Add events from a source
      */
-    addEvents(events, source) {
+    async addEvents(events, source) {
         const normalizedEvents = events.map(event => this.normalizeEvent(event, source));
-        this.events = [...this.events, ...normalizedEvents];
+        
+        if (this.useDatabase) {
+            try {
+                // Bulk upsert to database
+                const bulkOps = normalizedEvents.map(event => ({
+                    updateOne: {
+                        filter: { eventId: event.id },
+                        update: {
+                            $set: {
+                                eventId: event.id,
+                                title: event.title,
+                                description: event.description,
+                                date: event.date,
+                                endDate: event.endDate,
+                                time: event.time,
+                                price: event.price,
+                                category: event.category,
+                                venue: event.venue,
+                                organizer: event.organizer,
+                                image: event.image,
+                                link: event.link,
+                                source: event.source
+                            }
+                        },
+                        upsert: true
+                    }
+                }));
+
+                if (bulkOps.length > 0) {
+                    await Event.bulkWrite(bulkOps);
+                    console.log(`Saved ${bulkOps.length} events from ${source} to database`);
+                }
+            } catch (error) {
+                console.error('Error saving events to database:', error.message);
+                // Fallback to in-memory
+                this.inMemoryEvents = [...this.inMemoryEvents, ...normalizedEvents];
+            }
+        } else {
+            // Use in-memory storage
+            this.inMemoryEvents = [...this.inMemoryEvents, ...normalizedEvents];
+        }
+        
         this.lastUpdate = new Date();
     }
 
@@ -88,8 +147,20 @@ class EventAggregator {
     /**
      * Get all events
      */
-    getAllEvents() {
-        return this.removeDuplicates(this.events).sort((a, b) =>
+    async getAllEvents() {
+        if (this.useDatabase) {
+            try {
+                const events = await Event.find({}).sort({ date: 1 }).lean();
+                return this.convertDbEventsToFormat(events);
+            } catch (error) {
+                console.error('Error fetching events from database:', error.message);
+                return this.removeDuplicates(this.inMemoryEvents).sort((a, b) =>
+                    new Date(a.date) - new Date(b.date)
+                );
+            }
+        }
+        
+        return this.removeDuplicates(this.inMemoryEvents).sort((a, b) =>
             new Date(a.date) - new Date(b.date)
         );
     }
@@ -97,7 +168,7 @@ class EventAggregator {
     /**
      * Get events for today
      */
-    getTodayEvents() {
+    async getTodayEvents() {
         const now = new Date();
         const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
         const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
@@ -108,7 +179,7 @@ class EventAggregator {
     /**
      * Get events for current week
      */
-    getWeekEvents() {
+    async getWeekEvents() {
         const now = new Date();
         const weekFromNow = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
 
@@ -118,7 +189,7 @@ class EventAggregator {
     /**
      * Get events for upcoming month
      */
-    getMonthEvents() {
+    async getMonthEvents() {
         const now = new Date();
         const monthFromNow = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
 
@@ -128,8 +199,25 @@ class EventAggregator {
     /**
      * Filter events by date range
      */
-    filterByDateRange(startDate, endDate) {
-        const filtered = this.events.filter(event => {
+    async filterByDateRange(startDate, endDate) {
+        if (this.useDatabase) {
+            try {
+                const events = await Event.findByDateRange(startDate, endDate).lean();
+                return this.convertDbEventsToFormat(events);
+            } catch (error) {
+                console.error('Error filtering events by date:', error.message);
+                // Fallback to in-memory
+                const filtered = this.inMemoryEvents.filter(event => {
+                    const eventDate = new Date(event.date);
+                    return eventDate >= startDate && eventDate <= endDate;
+                });
+                return this.removeDuplicates(filtered).sort((a, b) =>
+                    new Date(a.date) - new Date(b.date)
+                );
+            }
+        }
+
+        const filtered = this.inMemoryEvents.filter(event => {
             const eventDate = new Date(event.date);
             return eventDate >= startDate && eventDate <= endDate;
         });
@@ -137,6 +225,33 @@ class EventAggregator {
         return this.removeDuplicates(filtered).sort((a, b) =>
             new Date(a.date) - new Date(b.date)
         );
+    }
+
+    /**
+     * Convert database events to API format
+     */
+    convertDbEventsToFormat(dbEvents) {
+        return dbEvents.map(event => ({
+            id: event.eventId,
+            title: event.title,
+            description: event.description,
+            date: event.date,
+            dateDisplay: new Date(event.date).toLocaleDateString('en-US', {
+                weekday: 'short',
+                month: 'short',
+                day: 'numeric',
+                year: 'numeric'
+            }),
+            endDate: event.endDate,
+            time: event.time,
+            price: event.price,
+            category: event.category,
+            venue: event.venue,
+            organizer: event.organizer,
+            image: event.image,
+            link: event.link,
+            source: event.source
+        }));
     }
 
     /**
@@ -159,7 +274,6 @@ class EventAggregator {
             // Check if we've seen this exact match
             if (seen.has(key)) {
                 // Skip this duplicate
-                console.log(`Duplicate detected: "${event.title}" from ${event.source}`);
                 continue;
             }
 
@@ -167,7 +281,6 @@ class EventAggregator {
             let isDuplicate = false;
             for (const [seenKey, seenEvent] of seen.entries()) {
                 if (this.areEventsSimilar(event, seenEvent)) {
-                    console.log(`Similar event detected: "${event.title}" ≈ "${seenEvent.title}"`);
                     isDuplicate = true;
                     break;
                 }
@@ -179,7 +292,6 @@ class EventAggregator {
             }
         }
 
-        console.log(`Removed ${events.length - result.length} duplicate events`);
         return result;
     }
 
@@ -259,8 +371,22 @@ class EventAggregator {
     /**
      * Get events by category
      */
-    getEventsByCategory(category) {
-        return this.getAllEvents().filter(event =>
+    async getEventsByCategory(category) {
+        if (this.useDatabase) {
+            try {
+                const events = await Event.findByCategory(category).lean();
+                return this.convertDbEventsToFormat(events);
+            } catch (error) {
+                console.error('Error fetching events by category:', error.message);
+                const allEvents = await this.getAllEvents();
+                return allEvents.filter(event =>
+                    event.category.toLowerCase() === category.toLowerCase()
+                );
+            }
+        }
+
+        const allEvents = await this.getAllEvents();
+        return allEvents.filter(event =>
             event.category.toLowerCase() === category.toLowerCase()
         );
     }
@@ -268,9 +394,25 @@ class EventAggregator {
     /**
      * Get all unique categories
      */
-    getCategories() {
+    async getCategories() {
+        if (this.useDatabase) {
+            try {
+                return await Event.getCategories();
+            } catch (error) {
+                console.error('Error fetching categories:', error.message);
+                // Fallback to in-memory
+                const categories = new Set();
+                this.inMemoryEvents.forEach(event => {
+                    if (event.category) {
+                        categories.add(event.category);
+                    }
+                });
+                return Array.from(categories).sort();
+            }
+        }
+
         const categories = new Set();
-        this.events.forEach(event => {
+        this.inMemoryEvents.forEach(event => {
             if (event.category) {
                 categories.add(event.category);
             }
@@ -281,20 +423,56 @@ class EventAggregator {
     /**
      * Clear all events
      */
-    clear() {
-        this.events = [];
+    async clear() {
+        if (this.useDatabase) {
+            try {
+                await Event.deleteMany({});
+                console.log('Cleared all events from database');
+            } catch (error) {
+                console.error('Error clearing events from database:', error.message);
+            }
+        }
+        
+        this.inMemoryEvents = [];
         this.lastUpdate = null;
     }
 
     /**
      * Get statistics
      */
-    getStats() {
+    async getStats() {
+        let totalEvents = 0;
+        let uniqueEvents = 0;
+        let categories = 0;
+
+        if (this.useDatabase) {
+            try {
+                totalEvents = await Event.countDocuments();
+                uniqueEvents = totalEvents; // DB already handles uniqueness
+                const cats = await this.getCategories();
+                categories = cats.length;
+            } catch (error) {
+                console.error('Error getting stats from database:', error.message);
+                totalEvents = this.inMemoryEvents.length;
+                const allEvents = await this.getAllEvents();
+                uniqueEvents = allEvents.length;
+                const cats = await this.getCategories();
+                categories = cats.length;
+            }
+        } else {
+            totalEvents = this.inMemoryEvents.length;
+            const allEvents = await this.getAllEvents();
+            uniqueEvents = allEvents.length;
+            const cats = await this.getCategories();
+            categories = cats.length;
+        }
+
         return {
-            totalEvents: this.events.length,
-            uniqueEvents: this.getAllEvents().length,
-            categories: this.getCategories().length,
-            lastUpdate: this.lastUpdate
+            totalEvents,
+            uniqueEvents,
+            categories,
+            lastUpdate: this.lastUpdate,
+            usingDatabase: this.useDatabase
         };
     }
 }

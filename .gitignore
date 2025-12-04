@@ -7,3 +7,15 @@ yarn-debug.log*
 yarn-error.log*
 .vscode/
 .idea/
+# Secrets
+branding.md
+AI_CLASSIFICATION.md
+BRANDING_IMPLEMENTATION.md
+DATABASE_SETUP.md
+IMAGE_FIX.md
+package-lock.json
+package.json
+RESTART_INSTRUCTIONS.md
+SCRAPER_ANALYSIS.md
+SCRAPER_UPDATES.md
+SCRAPING_CHALLENGES.md

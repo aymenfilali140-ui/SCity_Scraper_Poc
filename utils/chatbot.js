@@ -1,7 +1,7 @@
 /**
  * RAG Chatbot
  * Uses Gemini API for embeddings and chat responses
- * Implements Retrieval-Augmented Generation pipeline
+ * Implements Retrieval-Augmented Generation pipeline with MongoDB persistence
  */
 
 const { GoogleGenerativeAI } = require('@google/generative-ai');
@@ -11,9 +11,19 @@ class Chatbot {
     constructor(apiKey) {
         this.vectorStore = new VectorStore();
         this.genAI = apiKey ? new GoogleGenerativeAI(apiKey) : null;
-        this.embeddingModel = this.genAI ? this.genAI.getGenerativeModel({ model: 'embedding-001' }) : null;
-        this.chatModel = this.genAI ? this.genAI.getGenerativeModel({ model: 'gemini-pro' }) : null;
+        this.embeddingModel = this.genAI ? this.genAI.getGenerativeModel({ model: 'text-embedding-004' }) : null;
+        this.chatModel = this.genAI ? this.genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp' }) : null;
         this.hasApiKey = !!apiKey;
+        this.isInitialized = false;
+    }
+
+    /**
+     * Initialize chatbot with database
+     */
+    async initialize(database) {
+        await this.vectorStore.initialize(database);
+        this.isInitialized = true;
+        console.log('Chatbot: Initialized with database support');
     }
 
     /**
@@ -34,7 +44,7 @@ class Chatbot {
     }
 
     /**
-     * Index events in vector store
+     * Index events in vector store (smart indexing - only new events)
      */
     async indexEvents(events) {
         if (!this.hasApiKey) {
@@ -42,21 +52,42 @@ class Chatbot {
             return;
         }
 
-        console.log(`Chatbot: Indexing ${events.length} events...`);
+        if (!this.isInitialized) {
+            console.log('Chatbot: Not initialized, skipping indexing');
+            return;
+        }
+
+        console.log(`Chatbot: Checking ${events.length} events for indexing...`);
 
         try {
-            // Generate embeddings for all events
-            const embeddings = [];
+            // Filter out events that already have embeddings
+            const eventsToIndex = [];
             for (const event of events) {
+                const hasEmbedding = await this.vectorStore.hasEmbedding(event.id);
+                if (!hasEmbedding) {
+                    eventsToIndex.push(event);
+                }
+            }
+
+            if (eventsToIndex.length === 0) {
+                console.log('Chatbot: All events already indexed, skipping');
+                return;
+            }
+
+            console.log(`Chatbot: Indexing ${eventsToIndex.length} new events...`);
+
+            // Generate embeddings for new events
+            const embeddings = [];
+            for (const event of eventsToIndex) {
                 // Create searchable text from event
                 const searchableText = this.createSearchableText(event);
                 const embedding = await this.generateEmbedding(searchableText);
                 embeddings.push(embedding);
             }
 
-            // Add to vector store
-            this.vectorStore.addVectors(events, embeddings);
-            console.log(`Chatbot: Successfully indexed ${events.length} events`);
+            // Add to vector store (will save to database)
+            await this.vectorStore.addVectors(eventsToIndex, embeddings);
+            console.log(`Chatbot: Successfully indexed ${eventsToIndex.length} new events`);
         } catch (error) {
             console.error('Error indexing events:', error.message);
         }
@@ -81,7 +112,7 @@ class Chatbot {
     /**
      * Chat with RAG pipeline
      */
-    async chat(userQuery) {
+    async chat(userQuery, allEvents = []) {
         if (!this.hasApiKey) {
             return {
                 response: "I'm sorry, but the chatbot is not configured. Please set up your Gemini API key to enable chat functionality.",
@@ -89,7 +120,8 @@ class Chatbot {
             };
         }
 
-        if (this.vectorStore.isEmpty()) {
+        const isEmpty = await this.vectorStore.isEmpty();
+        if (isEmpty) {
             return {
                 response: "I don't have any events indexed yet. Please wait for the events to load.",
                 events: []
@@ -100,8 +132,8 @@ class Chatbot {
             // Step 1: Generate query embedding
             const queryEmbedding = await this.generateEmbedding(userQuery);
 
-            // Step 2: Retrieve similar events
-            const results = this.vectorStore.search(queryEmbedding, 5);
+            // Step 2: Retrieve similar events (pass full event metadata)
+            const results = await this.vectorStore.search(queryEmbedding, 5, allEvents);
 
             // Step 3: Build context from retrieved events
             const context = this.buildContext(results);
@@ -160,10 +192,12 @@ Please provide a helpful, conversational response. If the user is asking about s
     /**
      * Get vector store stats
      */
-    getStats() {
+    async getStats() {
+        const totalEvents = await this.vectorStore.size();
         return {
-            totalEvents: this.vectorStore.size(),
-            hasApiKey: this.hasApiKey
+            totalEvents,
+            hasApiKey: this.hasApiKey,
+            isInitialized: this.isInitialized
         };
     }
 }

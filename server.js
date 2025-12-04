@@ -11,6 +11,9 @@ const cors = require('cors');
 const path = require('path');
 const cron = require('node-cron');
 
+// Import database
+const database = require('./config/database');
+
 // Import scrapers
 const iLoveQatarScraper = require('./scrapers/iLoveQatar');
 const qatarMuseumsScraper = require('./scrapers/qatarMuseums');
@@ -99,20 +102,20 @@ async function scrapeAllSources() {
  *   - range: 'week' | 'month' | 'all' (default: 'all')
  *   - category: filter by category
  */
-app.get('/api/events', (req, res) => {
+app.get('/api/events', async (req, res) => {
     try {
         const { range, category } = req.query;
         let events;
 
         // Filter by date range
         if (range === 'today') {
-            events = eventAggregator.getTodayEvents();
+            events = await eventAggregator.getTodayEvents();
         } else if (range === 'week') {
-            events = eventAggregator.getWeekEvents();
+            events = await eventAggregator.getWeekEvents();
         } else if (range === 'month') {
-            events = eventAggregator.getMonthEvents();
+            events = await eventAggregator.getMonthEvents();
         } else {
-            events = eventAggregator.getAllEvents();
+            events = await eventAggregator.getAllEvents();
         }
 
         // Filter by category if specified
@@ -140,9 +143,9 @@ app.get('/api/events', (req, res) => {
  * GET /api/categories
  * Get all available event categories
  */
-app.get('/api/categories', (req, res) => {
+app.get('/api/categories', async (req, res) => {
     try {
-        const categories = eventAggregator.getCategories();
+        const categories = await eventAggregator.getCategories();
         res.json({
             success: true,
             categories: categories
@@ -159,9 +162,9 @@ app.get('/api/categories', (req, res) => {
  * GET /api/stats
  * Get aggregator statistics
  */
-app.get('/api/stats', (req, res) => {
+app.get('/api/stats', async (req, res) => {
     try {
-        const stats = eventAggregator.getStats();
+        const stats = await eventAggregator.getStats();
         res.json({
             success: true,
             stats: {
@@ -208,6 +211,34 @@ app.post('/api/refresh', async (req, res) => {
 });
 
 /**
+ * GET /api/health
+ * Database and system health check
+ */
+app.get('/api/health', async (req, res) => {
+    try {
+        const dbHealth = await database.healthCheck();
+        const stats = await eventAggregator.getStats();
+        const chatbotStats = await chatbot.getStats();
+
+        res.json({
+            success: true,
+            timestamp: new Date().toISOString(),
+            database: dbHealth,
+            events: {
+                total: stats.totalEvents,
+                usingDatabase: stats.usingDatabase
+            },
+            chatbot: chatbotStats
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+/**
  * POST /api/chat
  * Handle chatbot queries
  */
@@ -222,8 +253,11 @@ app.post('/api/chat', async (req, res) => {
             });
         }
 
+        // Get all events for metadata
+        const allEvents = await eventAggregator.getAllEvents();
+
         // Get response from chatbot
-        const result = await chatbot.chat(query);
+        const result = await chatbot.chat(query, allEvents);
 
         res.json({
             success: true,
@@ -253,12 +287,29 @@ cron.schedule('0 */6 * * *', () => {
     scrapeAllSources();
 });
 
-// Initial scraping on server start
-scrapeAllSources();
+/**
+ * Initialize application
+ */
+async function initializeApp() {
+    console.log('Initializing Qatar Events Aggregator...');
+
+    // Connect to database
+    await database.connect();
+
+    // Initialize event aggregator with database
+    await eventAggregator.initialize(database);
+
+    // Initialize chatbot with database
+    await chatbot.initialize(database);
+
+    // Initial scraping on server start
+    scrapeAllSources();
+
+    console.log('✓ Application initialized successfully');
+}
 
 // Start server
-// Start server
-app.listen(PORT, '0.0.0.0', () => {
+app.listen(PORT, '0.0.0.0', async () => {
     console.log(`Qatar Events Aggregator running on:`);
     console.log(`- Local:   http://localhost:${PORT}`);
 
@@ -273,5 +324,19 @@ app.listen(PORT, '0.0.0.0', () => {
         }
     }
 
-    console.log('Scraping events from ILoveQatar, Qatar Museums, and Visit Qatar...');
+    // Initialize application
+    await initializeApp();
+});
+
+// Graceful shutdown
+process.on('SIGINT', async () => {
+    console.log('\nShutting down gracefully...');
+    await database.disconnect();
+    process.exit(0);
+});
+
+process.on('SIGTERM', async () => {
+    console.log('\nShutting down gracefully...');
+    await database.disconnect();
+    process.exit(0);
 });

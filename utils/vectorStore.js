@@ -1,45 +1,152 @@
 /**
- * Simple In-Memory Vector Store
+ * Vector Store with MongoDB Persistence
  * Stores event embeddings and performs cosine similarity search
  */
 
+const Embedding = require('../models/Embedding');
+
 class VectorStore {
     constructor() {
-        this.vectors = new Map(); // eventId -> { embedding, metadata }
+        this.inMemoryVectors = new Map(); // Fallback for when DB is unavailable
+        this.useDatabase = false;
+        this.vectorCache = null; // Cache for search operations
+        this.cacheTimestamp = null;
+    }
+
+    /**
+     * Initialize with database support
+     */
+    async initialize(database) {
+        this.database = database;
+        this.useDatabase = database && database.isConnected;
+        
+        if (this.useDatabase) {
+            console.log('VectorStore: Using MongoDB for persistence');
+            // Load vectors into cache for faster search
+            await this.refreshCache();
+        } else {
+            console.log('VectorStore: Using in-memory storage (no persistence)');
+        }
+    }
+
+    /**
+     * Refresh the vector cache from database
+     */
+    async refreshCache() {
+        if (!this.useDatabase) return;
+
+        try {
+            const embeddings = await Embedding.getAllEmbeddings().lean();
+            this.vectorCache = new Map();
+            
+            embeddings.forEach(emb => {
+                this.vectorCache.set(emb.eventId, {
+                    embedding: emb.embedding,
+                    metadata: { eventId: emb.eventId }
+                });
+            });
+            
+            this.cacheTimestamp = Date.now();
+            console.log(`VectorStore: Cached ${embeddings.length} embeddings`);
+        } catch (error) {
+            console.error('Error refreshing vector cache:', error.message);
+            this.vectorCache = null;
+        }
     }
 
     /**
      * Add or update an event embedding
      */
-    addVector(eventId, embedding, metadata) {
-        this.vectors.set(eventId, {
-            embedding: embedding,
-            metadata: metadata
-        });
+    async addVector(eventId, embedding, metadata) {
+        if (this.useDatabase) {
+            try {
+                await Embedding.findOneAndUpdate(
+                    { eventId },
+                    {
+                        eventId,
+                        embedding,
+                        dimension: embedding.length
+                    },
+                    { upsert: true, new: true }
+                );
+                
+                // Update cache
+                if (this.vectorCache) {
+                    this.vectorCache.set(eventId, { embedding, metadata });
+                }
+            } catch (error) {
+                console.error('Error saving embedding to database:', error.message);
+                // Fallback to in-memory
+                this.inMemoryVectors.set(eventId, { embedding, metadata });
+            }
+        } else {
+            this.inMemoryVectors.set(eventId, { embedding, metadata });
+        }
     }
 
     /**
      * Add multiple vectors at once
      */
-    addVectors(events, embeddings) {
-        events.forEach((event, index) => {
-            this.addVector(
-                event.id,
-                embeddings[index],
-                {
-                    title: event.title,
-                    description: event.description,
-                    date: event.date,
-                    dateDisplay: event.dateDisplay,
-                    category: event.category,
-                    venue: event.venue,
-                    price: event.price,
-                    link: event.link,
-                    organizer: event.organizer,
-                    image: event.image
-                }
-            );
-        });
+    async addVectors(events, embeddings) {
+        if (this.useDatabase) {
+            try {
+                const embeddingsData = events.map((event, index) => ({
+                    eventId: event.id,
+                    embedding: embeddings[index],
+                    model: 'text-embedding-004'
+                }));
+
+                await Embedding.bulkUpsert(embeddingsData);
+                console.log(`VectorStore: Saved ${embeddingsData.length} embeddings to database`);
+                
+                // Refresh cache after bulk insert
+                await this.refreshCache();
+            } catch (error) {
+                console.error('Error bulk saving embeddings:', error.message);
+                // Fallback to in-memory
+                events.forEach((event, index) => {
+                    this.inMemoryVectors.set(
+                        event.id,
+                        {
+                            embedding: embeddings[index],
+                            metadata: {
+                                title: event.title,
+                                description: event.description,
+                                date: event.date,
+                                dateDisplay: event.dateDisplay,
+                                category: event.category,
+                                venue: event.venue,
+                                price: event.price,
+                                link: event.link,
+                                organizer: event.organizer,
+                                image: event.image
+                            }
+                        }
+                    );
+                });
+            }
+        } else {
+            events.forEach((event, index) => {
+                this.inMemoryVectors.set(
+                    event.id,
+                    {
+                        embedding: embeddings[index],
+                        metadata: {
+                            title: event.title,
+                            description: event.description,
+                            date: event.date,
+                            dateDisplay: event.dateDisplay,
+                            category: event.category,
+                            venue: event.venue,
+                            price: event.price,
+                            link: event.link,
+                            organizer: event.organizer,
+                            image: event.image
+                        }
+                    }
+                );
+            });
+        }
     }
 
     /**
@@ -74,16 +181,36 @@ class VectorStore {
      * Search for similar events
      * @param {Array} queryEmbedding - The query vector
      * @param {number} topK - Number of results to return
+     * @param {Array} eventMetadata - Full event metadata for results
      * @returns {Array} - Array of {metadata, similarity} objects
      */
-    search(queryEmbedding, topK = 5) {
+    async search(queryEmbedding, topK = 5, eventMetadata = []) {
         const results = [];
+        let vectorSource = null;
 
-        for (const [eventId, data] of this.vectors.entries()) {
+        // Determine which vector source to use
+        if (this.useDatabase && this.vectorCache) {
+            vectorSource = this.vectorCache;
+        } else {
+            vectorSource = this.inMemoryVectors;
+        }
+
+        // Create a map of event metadata for quick lookup
+        const metadataMap = new Map();
+        eventMetadata.forEach(event => {
+            metadataMap.set(event.id, event);
+        });
+
+        // Calculate similarity for all vectors
+        for (const [eventId, data] of vectorSource.entries()) {
             const similarity = this.cosineSimilarity(queryEmbedding, data.embedding);
+            
+            // Get full metadata if available
+            const fullMetadata = metadataMap.get(eventId) || data.metadata;
+            
             results.push({
                 eventId: eventId,
-                metadata: data.metadata,
+                metadata: fullMetadata,
                 similarity: similarity
             });
         }
@@ -96,22 +223,56 @@ class VectorStore {
     /**
      * Get total number of vectors
      */
-    size() {
-        return this.vectors.size;
+    async size() {
+        if (this.useDatabase) {
+            try {
+                return await Embedding.countDocuments();
+            } catch (error) {
+                console.error('Error counting embeddings:', error.message);
+                return this.inMemoryVectors.size;
+            }
+        }
+        return this.inMemoryVectors.size;
     }
 
     /**
      * Clear all vectors
      */
-    clear() {
-        this.vectors.clear();
+    async clear() {
+        if (this.useDatabase) {
+            try {
+                await Embedding.deleteMany({});
+                console.log('Cleared all embeddings from database');
+                this.vectorCache = new Map();
+            } catch (error) {
+                console.error('Error clearing embeddings from database:', error.message);
+            }
+        }
+        
+        this.inMemoryVectors.clear();
     }
 
     /**
      * Check if store has vectors
      */
-    isEmpty() {
-        return this.vectors.size === 0;
+    async isEmpty() {
+        const count = await this.size();
+        return count === 0;
+    }
+
+    /**
+     * Check if an event already has an embedding
+     */
+    async hasEmbedding(eventId) {
+        if (this.useDatabase) {
+            try {
+                const embedding = await Embedding.findByEventId(eventId);
+                return !!embedding;
+            } catch (error) {
+                return this.inMemoryVectors.has(eventId);
+            }
+        }
+        return this.inMemoryVectors.has(eventId);
     }
 }
 
